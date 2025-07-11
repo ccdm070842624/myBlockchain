@@ -10,7 +10,7 @@ HOST = '127.0.0.1'
 PORT = 65432
 PEERS = [] 
 
-# --- Класс "Блок" ---
+# --- Класс "Блок" (обновлен) ---
 class Block:
     def __init__(self, index, transactions, timestamp, previous_hash, validator):
         self.index = index
@@ -21,10 +21,13 @@ class Block:
         self.hash = self.calculate_hash()
 
     def calculate_hash(self):
-        block_string = json.dumps(self.__dict__, sort_keys=True)
+        # Временная копия словаря без хеша, чтобы не было ошибки
+        block_data = self.__dict__.copy()
+        block_data.pop("hash", None)
+        block_string = json.dumps(block_data, sort_keys=True)
         return hashlib.sha256(block_string.encode()).hexdigest()
 
-# --- Класс "Блокчейн" (обновлен) ---
+# --- Класс "Блокчейн" (без изменений) ---
 class Blockchain:
     def __init__(self):
         self.chain = []
@@ -95,7 +98,9 @@ def handle_sync_request(conn):
     """Отправляет клиенту полную копию нашего блокчейна."""
     try:
         print("Получен запрос на синхронизацию.")
-        blockchain_json = json.dumps([vars(block) for block in my_blockchain.chain])
+        # Перед отправкой превращаем объекты в словари
+        blockchain_dicts = [block.__dict__ for block in my_blockchain.chain]
+        blockchain_json = json.dumps(blockchain_dicts)
         conn.sendall(blockchain_json.encode('utf-8'))
         print("Моя копия блокчейна отправлена.")
     finally:
@@ -121,9 +126,14 @@ def sync_with_peer():
             data = s.recv(1024 * 10)
             if data:
                 received_chain_json = data.decode('utf-8')
-                received_chain = [Block(**d) for d in json.loads(received_chain_json)]
+                received_dicts = json.loads(received_chain_json)
                 
-                # Обновляем свою цепочку, если полученная длиннее
+                # ИСПРАВЛЕНИЕ: создаем объекты Block, удаляя лишний "hash"
+                received_chain = []
+                for d in received_dicts:
+                    d.pop('hash', None)
+                    received_chain.append(Block(**d))
+                
                 if len(received_chain) > len(my_blockchain.chain):
                     my_blockchain.chain = received_chain
                     print("Моя цепочка успешно обновлена!")
@@ -135,7 +145,6 @@ def sync_with_peer():
 def main():
     mode = input("Запустить как сервер (s) или клиент (c)? ").lower()
     if mode == 's':
-        # Создаем пару блоков, чтобы цепочка была длиннее
         my_blockchain.add_block(my_blockchain.select_validator())
         my_blockchain.add_block(my_blockchain.select_validator())
         start_server()
